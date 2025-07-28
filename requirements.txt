@@ -1,0 +1,8 @@
+pandas
+scipy
+scikit-image
+phasepack
+pyfftw
+libifcb>=0.4
+scikit-learn
+pyarrow

@@ -1,0 +1,48 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ifcbproc"
+version = "0.1.1"
+description = "IFCB feature extraction tool"
+readme = "README.md"
+requires-python = ">=3.7"
+license = { text = "GPL-3.0" }
+authors = [
+    { name = "Alex Baldwin", email = "alewin@noc.ac.uk" }
+]
+keywords = ["image processing", "feature extraction", "computer vision"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: GNU General Public License v3 (GPLv3)",
+    "Topic :: Scientific/Engineering :: Image Processing",
+    "Topic :: Scientific/Engineering :: Oceanography"
+]
+dependencies = [
+    "numpy",
+    "scipy",
+    "scikit-image",
+    "phasepack",
+    "pyfftw",
+    "scikit-learn",
+    "pyarrow",
+    "libifcb>=0.4"
+]
+
+[project.urls]
+Homepage = "https://github.com/NOC-OI/ifcbproc"
+Repository = "https://github.com/NOC-OI/ifcbproc.git"
+Issues = "https://github.com/NOC-OI/ifcbproc/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["ifcbproc"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/ifcbproc",
+]
+
+[tool.hatch.metadata]
+allow-direct-references = true
