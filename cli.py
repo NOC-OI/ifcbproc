@@ -1,3 +1,22 @@
+#!/bin/python3
+
+# Copyright 2025, A Baldwin <alewin@noc.ac.uk>, National Oceanography Centre.
+#
+# This file is part of ifcbproc, a tool for processing IFCB data.
+#
+# ifcbproc is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Lesser General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# ifcbproc is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Lesser General Public License for more details.
+#
+# You should have received a copy of the GNU Lesser General Public License
+# along with ifcbproc.  If not, see <http://www.gnu.org/licenses/>.
+
 import numpy
 import pickle
 import pyarrow.parquet as paparquet
@@ -368,6 +387,11 @@ if __name__ == "__main__":
     if help_flag:
         print("")
         print("ifcbproc - A tool for processing IFCB data")
+        print("")
+        print("Copyright 2025, A Baldwin <alewin@noc.ac.uk>, National Oceanography Centre")
+        print("This program comes with ABSOLUTELY NO WARRANTY. This is free software,")
+        print("and you are welcome to redistribute it under the conditions of the")
+        print("GPL version 3 license.")
         print("")
         if ehelp_msg is not None:
             print("ERROR")
