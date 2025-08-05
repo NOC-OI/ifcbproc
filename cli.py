@@ -5,16 +5,15 @@
 # This file is part of ifcbproc, a tool for processing IFCB data.
 #
 # ifcbproc is free software: you can redistribute it and/or modify
-# it under the terms of the GNU Lesser General Public License as published by
-# the Free Software Foundation, either version 3 of the License, or
-# (at your option) any later version.
+# it under the terms of the GNU General Public License (version 3 only)
+# as published by the Free Software Foundation.
 #
 # ifcbproc is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU Lesser General Public License for more details.
+# GNU General Public License for more details.
 #
-# You should have received a copy of the GNU Lesser General Public License
+# You should have received a copy of the GNU General Public License v3
 # along with ifcbproc.  If not, see <http://www.gnu.org/licenses/>.
 
 import numpy
@@ -144,7 +143,7 @@ def human_to_bytes(human_size):
 
     return byte_size
 
-def to_ecotaxa(roi_bin_list, out_file, verbose = False, no_image = False, max_size = None):
+def to_ecotaxa(roi_bin_list, out_file, verbose = False, no_image = False, max_size = None, table_map = {}, joins = [], feature_files = []):
 
     ecotaxa_mapping = {
                 "img_file_name": {
@@ -178,12 +177,36 @@ def to_ecotaxa(roi_bin_list, out_file, verbose = False, no_image = False, max_si
         ecotaxa_type_def.append(ecotaxa_mapping[idx]["type"])
 
     adc_keys = set()
+    feature_keys = set()
 
     samples = []
     for roi_bin in roi_bin_list:
         sample = ROIReader(roi_bin[0], roi_bin[1], roi_bin[2])
+        matched_feature_files = []
+        feature_map = {}
+        sample_bn = os.path.splitext(os.path.basename(roi_bin[0]))[0]
+
+        for fncand in feature_files:
+            if sample_bn in fncand: # Detect if matching name
+                matched_feature_files.append(fncand)
+
+        for matched_feature_file in matched_feature_files:
+            with open(matched_feature_file) as csvfile:
+                csvreader = csv.DictReader(csvfile)
+                fst = True
+                for row in csvreader:
+                    feature_map[row["roi_number"]] = row
+                    if fst:
+                        for key in row.keys():
+                            valtype = "f"
+                            if re.match(r'^-?\d+(?:\.\d+)$', row[key]) is None:
+                                valtype = "t"
+                            feature_keys.add((key, valtype))
+                        fst = False
+
+
         if len(sample.rois) > 0:
-            samples.append((sample, roi_bin))
+            samples.append((sample, roi_bin, feature_map))
 
             for key in sample.rois[0].trigger.raw:
                 valtype = "f"
@@ -195,6 +218,10 @@ def to_ecotaxa(roi_bin_list, out_file, verbose = False, no_image = False, max_si
     for adc_key in adc_keys:
         ecotaxa_mapping_order.append(adc_key[0])
         ecotaxa_type_def.append(adc_key[1])
+
+    for feature_key in feature_keys:
+        ecotaxa_mapping_order.append("object_" + feature_key[0])
+        ecotaxa_type_def.append(feature_key[1])
 
     etfn = []
     for etf in ecotaxa_type_def:
@@ -248,6 +275,16 @@ def to_ecotaxa(roi_bin_list, out_file, verbose = False, no_image = False, max_si
                 }
 
 
+            for feature_key in feature_keys:
+                object_md["object_" + feature_key[0]] = ""
+                #print(sample[2][str(roi.index)])
+                if str(roi.index) in sample[2].keys():
+                    if feature_key[0] in sample[2][str(roi.index)].keys():
+                        object_md["object_" + feature_key[0]] = sample[2][str(roi.index)][feature_key[0]]
+                else:
+                    print("MISSING FEATURE DATA FOR ROI " + str(roi.index))
+
+
             for key in roi.trigger.raw.keys():
                 object_md["acq_" + key] = roi.trigger.raw[key]
 
@@ -276,6 +313,50 @@ def to_ecotaxa(roi_bin_list, out_file, verbose = False, no_image = False, max_si
 
     out_zip.writestr(container + "/ecotaxa.tsv", ecotaxa_md.getvalue())
     out_zip.close()
+
+
+def patch_files(roi_bin_list, environmental_data_files = [], verbose = False):
+    env_data = {}
+
+    for environmental_data_file in environmental_data_files:
+        with open(environmental_data_file) as csvfile:
+            csvreader = csv.DictReader(csvfile)
+            for row in csvreader:
+                mk = None
+                if "bin" in row.keys():
+                    mk = "bin"
+                if "sample" in row.keys():
+                    mk = "sample"
+                if "filename" in row.keys():
+                    mk = "filename"
+                keyn = os.path.splitext(os.path.basename(row[mk]))[0]
+                env_data[keyn] = row
+
+
+    for roi_bin in roi_bin_list:
+        sample_bn = os.path.splitext(os.path.basename(roi_bin[0]))[0]
+        if sample_bn in env_data.keys():
+            gps_coords = None
+            if ("latitude" in env_data[sample_bn].keys()) and ("longitude" in env_data[sample_bn].keys()):
+                gps_coords = env_data[sample_bn]["latitude"], env_data[sample_bn]["longitude"]
+            elif ("lat" in env_data[sample_bn].keys()) and ("long" in env_data[sample_bn].keys()):
+                gps_coords = env_data[sample_bn]["lat"], env_data[sample_bn]["long"]
+            elif ("lat" in env_data[sample_bn].keys()) and ("lon" in env_data[sample_bn].keys()):
+                gps_coords = env_data[sample_bn]["lat"], env_data[sample_bn]["lon"]
+            if gps_coords is not None:
+                if verbose:
+                    print("Patching " + sample_bn + " with GPS coords [" + gps_coords[0] + "," + gps_coords[1] + "]")
+                with open(roi_bin[0], "r+") as f:
+                    data = f.read()
+                    print(data)
+                    f.seek(0)
+                    #f.write(output)
+                    #f.truncate()
+            else:
+                if verbose:
+                    print("No GPS data for " + sample_bn)
+
+
 
 if __name__ == "__main__":
     eargs = []
@@ -307,15 +388,18 @@ if __name__ == "__main__":
     output_file = None
     no_image = False
     max_size = None
-    join_srcs = []
-    join_dsts = []
-    join_files = []
+    joins = []
+    tables = []
     autoname = False
     verbose = False
     recurse = False
+    multiple_capture_switch = False
     file_heap = []
     for arg in eargs:
         if arg.startswith("--"):
+            if multiple_capture_switch:
+                multiple_capture_switch = False
+                mode = mode_stack.pop() # Break out of the current multiple capture
             if arg == "--help":
                 command = "help"
                 ehelp_msg = None
@@ -323,6 +407,13 @@ if __name__ == "__main__":
             elif arg == "--output":
                 mode_stack.append(mode)
                 mode = "output_capture"
+            elif arg == "--table":
+                mode_stack.append(mode)
+                mode = "table_capture"
+            elif arg == "--tables":
+                mode_stack.append(mode)
+                mode = "tables_capture"
+                multiple_capture_switch = True
             elif arg == "--join":
                 mode_stack.append(mode)
                 mode = "join_capture"
@@ -352,6 +443,9 @@ if __name__ == "__main__":
                 elif arg == "ecotaxa":
                     command = "ecotaxa"
                     mode = "files"
+                elif arg == "patch":
+                    command = "patch"
+                    mode = "files"
                 elif arg == "features":
                     command = "features"
                     mode = "files"
@@ -366,15 +460,14 @@ if __name__ == "__main__":
             elif mode == "maxsize_capture":
                 max_size = human_to_bytes(arg)
                 mode = mode_stack.pop()
-            elif mode == "join_capture_src":
-                join_srcs.append(arg)
-                mode = "join_capture_dst"
-            elif mode == "join_capture_dst":
-                join_dsts.append(arg)
-                mode = "join_capture_fn"
-            elif mode == "join_capture_fn":
-                join_files.append(arg)
+            elif mode == "join_capture":
+                joins.append(arg)
                 mode = mode_stack.pop()
+            elif mode == "table_capture":
+                tables.append(arg)
+                mode = mode_stack.pop()
+            elif mode == "tables_capture":
+                tables.append(arg)
 
     if command is None:
         help_flag = True
@@ -403,22 +496,41 @@ if __name__ == "__main__":
         print("    ifcbproc features --autoname <roi_file> [roi_file...]")
         print("")
     else:
-        if command == "parquet" or command == "ecotaxa" or command == "features":
+        if command == "parquet" or command == "ecotaxa" or command == "features" or command == "patch":
 
             roi_bin_list = []
 
             cleaved_file_heap = set()
+            csv_heap = set()
 
             for filen in file_heap:
                 if filen.endswith(".roi") or filen.endswith(".adc") or filen.endswith(".hdr"):
                     cleaved_file_heap.add(filen[:-4])
+                elif filen.endswith(".csv"):
+                    csv_heap.add(filen)
                 else:
                     cleaved_file_heap.add(filen)
+
+            table_map = {}
+            for table_file in tables:
+                table_basename = os.path.splitext(os.path.basename(table_file))
+                table_map[table_basename] = []
+                with open(table_file) as csvfile:
+                    csvreader = csv.DictReader(csvfile)
+                    for row in csvreader:
+                        table_map[table_basename].append(row)
+
 
             for filen in cleaved_file_heap:
                 roi_bin_list.append([filen + ".hdr", filen + ".adc", filen + ".roi"])
 
             if command == "parquet":
-                to_parquet(roi_bin_list, output_file)
+                to_parquet(roi_bin_list, output_file, verbose = verbose)
             elif command == "ecotaxa":
-                to_ecotaxa(roi_bin_list, output_file, verbose = verbose, no_image = no_image, max_size = max_size)
+                to_ecotaxa(roi_bin_list, output_file, verbose = verbose, no_image = no_image, max_size = max_size, table_map = table_map, joins = joins, feature_files = csv_heap)
+            elif command == "patch":
+                patch_files(roi_bin_list, environmental_data_files = tables, verbose = verbose)
+            elif command == "features":
+                print("Feature generation unimplemented!")
+            else:
+                print(command + " unimplemented!")
