@@ -64,7 +64,7 @@ def print_progress(iteration, total, orig_time):
 
 def ifcb_id_to_udt(ifcb_id):
     id_split = ifcb_id.split("_")
-    dt = datetime.strptime(id_split[0], "D%Y%m%dT%H%M%S")
+    dt = datetime.strptime(id_split[0], "D%Y%m%dT%H%M%S").replace(tzinfo=pytz.UTC)
     res = int(dt.timestamp())
     udt = "udt__usa_mc_lane_research_laboratories__imaging_flow_cytobot__" + id_split[1].lower() + "__" + str(res)
     if len(id_split) > 2:
