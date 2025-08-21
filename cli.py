@@ -23,6 +23,7 @@ import pyarrow
 from typing_extensions import Annotated
 from libifcb import ROIReader
 import time
+import pytz
 import csv
 import zipfile
 import math
@@ -34,6 +35,7 @@ import multiprocessing
 from multiprocessing import Process
 from multiprocessing import shared_memory
 from typing import List
+import planktofeatures.extractors
 import sys
 import re
 
@@ -179,6 +181,8 @@ def to_ecotaxa(roi_bin_list, out_file, verbose = False, no_image = False, max_si
     adc_keys = set()
     feature_keys = set()
 
+    #csv.field_size_limit(sys.maxsize) # Needed for some features!
+
     samples = []
     for roi_bin in roi_bin_list:
         sample = ROIReader(roi_bin[0], roi_bin[1], roi_bin[2])
@@ -192,17 +196,20 @@ def to_ecotaxa(roi_bin_list, out_file, verbose = False, no_image = False, max_si
 
         for matched_feature_file in matched_feature_files:
             with open(matched_feature_file) as csvfile:
-                csvreader = csv.DictReader(csvfile)
-                fst = True
-                for row in csvreader:
-                    feature_map[row["roi_number"]] = row
-                    if fst:
-                        for key in row.keys():
-                            valtype = "f"
-                            if re.match(r'^-?\d+(?:\.\d+)$', row[key]) is None:
-                                valtype = "t"
-                            feature_keys.add((key, valtype))
-                        fst = False
+                try:
+                    csvreader = csv.DictReader(csvfile)
+                    fst = True
+                    for row in csvreader:
+                        feature_map[row["roi_number"]] = row
+                        if fst:
+                            for key in row.keys():
+                                valtype = "f"
+                                if re.match(r'^-?\d+(?:\.\d+)$', row[key]) is None:
+                                    valtype = "t"
+                                feature_keys.add((key, valtype))
+                            fst = False
+                except Exception:
+                    print("Error reading feature file " + matched_feature_file)
 
 
         if len(sample.rois) > 0:
@@ -219,8 +226,13 @@ def to_ecotaxa(roi_bin_list, out_file, verbose = False, no_image = False, max_si
         ecotaxa_mapping_order.append(adc_key[0])
         ecotaxa_type_def.append(adc_key[1])
 
+    process_features = ["feature_extractor"]
+
     for feature_key in feature_keys:
-        ecotaxa_mapping_order.append("object_" + feature_key[0])
+        output_key_name = "object_" + feature_key[0]
+        if feature_key[0] in process_features:
+            output_key_name = "process_" + feature_key[0]
+        ecotaxa_mapping_order.append(output_key_name)
         ecotaxa_type_def.append(feature_key[1])
 
     etfn = []
@@ -276,11 +288,14 @@ def to_ecotaxa(roi_bin_list, out_file, verbose = False, no_image = False, max_si
 
 
             for feature_key in feature_keys:
-                object_md["object_" + feature_key[0]] = ""
+                output_key_name = "object_" + feature_key[0]
+                if feature_key[0] in process_features:
+                    output_key_name = "process_" + feature_key[0]
+                object_md[output_key_name] = ""
                 #print(sample[2][str(roi.index)])
                 if str(roi.index) in sample[2].keys():
                     if feature_key[0] in sample[2][str(roi.index)].keys():
-                        object_md["object_" + feature_key[0]] = sample[2][str(roi.index)][feature_key[0]]
+                        object_md[output_key_name] = sample[2][str(roi.index)][feature_key[0]]
                 else:
                     print("MISSING FEATURE DATA FOR ROI " + str(roi.index))
 
@@ -356,7 +371,67 @@ def patch_files(roi_bin_list, environmental_data_files = [], verbose = False):
                 if verbose:
                     print("No GPS data for " + sample_bn)
 
+def generate_features_one_file(sample, csv_file):
+    first = True
+    orig_time = time.time()
+    feature_extractor = planktofeatures.extractors.WHOIVersion4()
+    with open(csv_file, "w", newline="") as csvfile:
+        csv_writer = csv.writer(csvfile, delimiter=",", quotechar="\"", quoting=csv.QUOTE_MINIMAL)
+        adc_row_idx = 0
+        total_rows = len(sample.rows)
+        for adc_row_obj in sample.rows:
+            adc_row_idx += 1
+            #adc_data_row = sample.adc_data[adc_row_idx-1]
+            img = adc_row_obj.image
+            if img is not None:
+                feature_object = feature_extractor.process(img)
+                row_features = feature_object.values
+                if first:
+                    first = False
+                    akeys = list(map(str.lower,row_features.keys()))
+                    csv_writer.writerow(["roi_number", "feature_extractor", *akeys])
+                csv_writer.writerow([adc_row_idx, "whoi_v4", *row_features.values()])
 
+            if adc_row_idx % 16 == 0:
+                bar_w = 32
+                bar_x = round(bar_w * (adc_row_idx/total_rows))
+                bar_l = "#"*bar_x
+                bar_r = "_"*(bar_w - bar_x)
+                ttime = ((time.time() - orig_time) / adc_row_idx) * total_rows
+                if adc_row_idx > 5:
+                    secs = round(ttime * (1 - (adc_row_idx/total_rows)))
+                    timestr = f"about {secs}s remaining..."
+                    if secs < 3:
+                        timestr = "only a few seconds remaining..."
+                    if secs > 60:
+                        mins = math.floor(secs / 60)
+                        secs = secs - (mins * 60)
+                        timestr = f"about {mins}min {secs}s remaining..."
+                    if secs > 3600:
+                        hrs = math.floor(mins / 60)
+                        mins = mins - (hrs * 60)
+                        timestr = f"about {hrs}hr {mins}min remaining..."
+
+                    print(f"\r[{bar_l}{bar_r}] {timestr}                ", end="")
+                else:
+                    print(f"\r[{bar_l}{bar_r}] getting ready...", end="")
+
+def generate_features(roi_bin_list, out_folder = None, verbose = False):
+    roipaths = []
+    for roi_bin_group in roi_bin_list:
+        roipaths.append(os.path.dirname(os.path.abspath(roi_bin_group[0])))
+    common_path = os.path.commonpath(roipaths)
+    #print("Common path " + str(common_path))
+    if out_folder is not None:
+        common_path = os.path.abspath(out_folder)
+        #print("Output path " + str(out_path))
+
+    for roi_bin_group in roi_bin_list:
+        basename = os.path.splitext(os.path.basename(roi_bin_group[0]))[0]
+        roi_reader = ROIReader(roi_bin_group[0], roi_bin_group[1], roi_bin_group[2])
+        output_csv = os.path.join(common_path,basename + "_features.csv")
+        print(roi_bin_group[2] + " => " + output_csv)
+        generate_features_one_file(roi_reader, output_csv)
 
 if __name__ == "__main__":
     eargs = []
@@ -390,7 +465,6 @@ if __name__ == "__main__":
     max_size = None
     joins = []
     tables = []
-    autoname = False
     verbose = False
     recurse = False
     multiple_capture_switch = False
@@ -426,8 +500,6 @@ if __name__ == "__main__":
                 no_image = True
             elif arg == "--recurse":
                 recurse = True
-            elif arg == "--autoname":
-                autoname = True
             else:
                 ehelp_msg = "Unrecognised option \"" + arg + "\""
                 help_flag = True
@@ -473,7 +545,7 @@ if __name__ == "__main__":
         help_flag = True
 
     if output_file is None:
-        if command == "parquet" or command == "ecotaxa" or (command == "features" and autoname == False):
+        if command == "parquet" or command == "ecotaxa":
             ehelp_msg = "Missing output path"
             help_flag = True
 
@@ -493,7 +565,7 @@ if __name__ == "__main__":
         print("Common usage:")
         print("    ifcbproc parquet <roi_file> [roi_file...] -o <output_path>")
         print("    ifcbproc ecotaxa <roi_file> [roi_file...] -o <output_zip_file>")
-        print("    ifcbproc features --autoname <roi_file> [roi_file...]")
+        print("    ifcbproc features <roi_file> [roi_file...] [-o <output_path>]")
         print("")
     else:
         if command == "parquet" or command == "ecotaxa" or command == "features" or command == "patch":
@@ -531,6 +603,6 @@ if __name__ == "__main__":
             elif command == "patch":
                 patch_files(roi_bin_list, environmental_data_files = tables, verbose = verbose)
             elif command == "features":
-                print("Feature generation unimplemented!")
+                generate_features(roi_bin_list, output_file, verbose = verbose)
             else:
                 print(command + " unimplemented!")
