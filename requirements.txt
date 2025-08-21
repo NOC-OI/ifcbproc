@@ -4,5 +4,6 @@ scikit-image
 phasepack
 pyfftw
 libifcb>=0.4
+planktofeatures
 scikit-learn
 pyarrow
