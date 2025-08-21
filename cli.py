@@ -20,7 +20,7 @@ import numpy
 import pickle
 import pyarrow.parquet as paparquet
 import pyarrow
-from typing_extensions import Annotated
+#from typing_extensions import Annotated
 from libifcb import ROIReader
 import time
 import pytz
@@ -31,10 +31,10 @@ import io
 from datetime import datetime
 import hashlib
 import os
-import multiprocessing
-from multiprocessing import Process
-from multiprocessing import shared_memory
-from typing import List
+#import multiprocessing
+#from multiprocessing import Process
+#from multiprocessing import shared_memory
+#from typing import List
 import planktofeatures.extractors
 import sys
 import re
