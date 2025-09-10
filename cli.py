@@ -20,7 +20,6 @@ import numpy
 import pickle
 import pyarrow.parquet as paparquet
 import pyarrow
-#from typing_extensions import Annotated
 from libifcb import ROIReader
 import time
 import pytz
@@ -31,10 +30,6 @@ import io
 from datetime import datetime
 import hashlib
 import os
-#import multiprocessing
-#from multiprocessing import Process
-#from multiprocessing import shared_memory
-#from typing import List
 import planktofeatures.extractors
 import sys
 import re
@@ -180,15 +175,83 @@ def to_ecotaxa(roi_bin_list, out_file, verbose = False, no_image = False, max_si
 
     adc_keys = set()
     feature_keys = set()
+    sample_metadata_keys = set()
+    sample_metadata_key_names = set()
+    join_keys = set()
+
+    def search_table_for_match(rpath, table_map, match):
+        spath = rpath.split(".")
+        hm = False
+        if spath.pop(0) == "tables":
+            if len(spath) > 0:
+                base = spath.pop(0)
+                if len(spath) > 0:
+                    head = spath.pop(0)
+                    for row in table_map[base]:
+                        if head in row.keys():
+                            hm = True
+                            #print(row)
+                            #print(match)
+                            if row[head] == match:
+                                return row
+            if hm:
+                print("ERROR: Key \"" + rpath + "\" exists, but did not have a match for all ROIs. Perhaps your table is incomplete?")
+                sys.exit()
+            else:
+                print("ERROR: No such key \"" + rpath + "\", perhaps you forgot to add a table?")
+                sys.exit()
+        else:
+            raise RuntimeException("Something is very broken!")
+
+    def get_sample_data_from_path(rpath, sample_metadata, samplefile_metadata):
+        spath = rpath.split(".")
+        base = spath.pop(0)
+        cdict = {}
+        if base == "sample":
+            cdict = sample_metadata
+        elif base == "file":
+            cdict = samplefile_metadata
+        if len(spath) > 0:
+            head = spath.pop(0)
+            if head in cdict.keys():
+                return cdict[head]
+            else:
+                print(cdict)
+                print("ERROR: No such key \"" + rpath + "\", perhaps a spelling mistake?")
+                sys.exit()
 
     #csv.field_size_limit(sys.maxsize) # Needed for some features!
+
+    join_defs = []
+
+    for join_def in joins:
+        jds = join_def.split("=")
+        if len(jds) != 2:
+            print("ERROR: Joins must be of the form \"<path.to.table.data>=<path.to.roi.property>\"")
+            sys.exit()
+        sample_path = jds[0].strip()
+        table_path = jds[1].strip()
+        if sample_path.startswith("table"):
+            tmp = sample_path
+            sample_path = table_path
+            table_path = tmp
+        join_defs.append([sample_path, table_path])
 
     samples = []
     for roi_bin in roi_bin_list:
         sample = ROIReader(roi_bin[0], roi_bin[1], roi_bin[2])
         matched_feature_files = []
         feature_map = {}
-        sample_bn = os.path.splitext(os.path.basename(roi_bin[0]))[0]
+        sample_md_map = {}
+        sample_fn = os.path.basename(roi_bin[0])
+        sample_se = os.path.splitext(sample_fn)
+        sample_bn = sample_se[0]
+
+        sample_info = {
+                "name": sample_fn,
+                "ext": sample_se[1],
+                "basename": sample_se[0]
+            }
 
         for fncand in feature_files:
             if sample_bn in fncand: # Detect if matching name
@@ -211,9 +274,26 @@ def to_ecotaxa(roi_bin_list, out_file, verbose = False, no_image = False, max_si
                 except Exception:
                     print("Error reading feature file " + matched_feature_file)
 
+        for join_def in join_defs:
+            sd = get_sample_data_from_path(join_def[0], sample.header, sample_info)
+            td = search_table_for_match(join_def[1], table_map, sd)
+            for roi in sample.rois:
+                roi_index = str(roi.index)
+                if roi_index not in feature_map.keys():
+                    sample_md_map[roi_index] = {}
+                for key in td.keys():
+                    sample_md_map[roi_index][key] = td[key]
+                    if key not in sample_metadata_key_names:
+                        valtype = "f"
+                        if re.match(r'^-?\d+(?:\.\d+)$', td[key]) is None:
+                            valtype = "t"
+                        sample_metadata_keys.add((key, valtype))
+                        sample_metadata_key_names.add(key)
+                #print(sample_md_map[roi.index])
+                #sys.exit()
 
         if len(sample.rois) > 0:
-            samples.append((sample, roi_bin, feature_map))
+            samples.append((sample, roi_bin, feature_map, sample_md_map))
 
             for key in sample.rois[0].trigger.raw:
                 valtype = "f"
@@ -228,12 +308,19 @@ def to_ecotaxa(roi_bin_list, out_file, verbose = False, no_image = False, max_si
 
     process_features = ["feature_extractor"]
 
+    feature_keys = sorted(feature_keys, key=lambda x: x[0], reverse=True)
+
     for feature_key in feature_keys:
         output_key_name = "object_" + feature_key[0]
         if feature_key[0] in process_features:
             output_key_name = "process_" + feature_key[0]
         ecotaxa_mapping_order.append(output_key_name)
         ecotaxa_type_def.append(feature_key[1])
+
+    for sample_metadata_key in sample_metadata_keys:
+        output_key_name = "sample_" + sample_metadata_key[0]
+        ecotaxa_mapping_order.append(output_key_name)
+        ecotaxa_type_def.append(sample_metadata_key[1])
 
     etfn = []
     for etf in ecotaxa_type_def:
@@ -298,6 +385,17 @@ def to_ecotaxa(roi_bin_list, out_file, verbose = False, no_image = False, max_si
                         object_md[output_key_name] = sample[2][str(roi.index)][feature_key[0]]
                 else:
                     print("MISSING FEATURE DATA FOR ROI " + str(roi.index))
+
+            for sample_metadata_key in sample_metadata_keys:
+                output_key_name = "sample_" + sample_metadata_key[0]
+                object_md[output_key_name] = ""
+                #print(sample[2][str(roi.index)])
+                if str(roi.index) in sample[3].keys():
+                    if sample_metadata_key[0] in sample[3][str(roi.index)].keys():
+                        object_md[output_key_name] = sample[3][str(roi.index)][sample_metadata_key[0]]
+                else:
+                    print(sample[3])
+                    print("MISSING SAMPLE METADATA FOR ROI " + str(roi.index))
 
 
             for key in roi.trigger.raw.keys():
@@ -585,7 +683,7 @@ if __name__ == "__main__":
 
             table_map = {}
             for table_file in tables:
-                table_basename = os.path.splitext(os.path.basename(table_file))
+                table_basename = os.path.splitext(os.path.basename(table_file))[0]
                 table_map[table_basename] = []
                 with open(table_file) as csvfile:
                     csvreader = csv.DictReader(csvfile)
