@@ -127,7 +127,7 @@ def to_parquet(roi_bin_list, out_file):
     parquet_writer.close()
 
 def human_to_bytes(human_size):
-    human_size.lower()
+    human_size = human_size.lower()
     byte_size = int(re.sub("[^\\d]", "", human_size))
     if human_size.endswith("k"):
         byte_size = byte_size * 1024
