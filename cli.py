@@ -662,7 +662,7 @@ if __name__ == "__main__":
             print("")
         print("Common usage:")
         print("    ifcbproc parquet <roi_file> [roi_file...] -o <output_path>")
-        print("    ifcbproc ecotaxa <roi_file> [roi_file...] -o <output_zip_file>")
+        print("    ifcbproc ecotaxa <roi_file> [roi_file...] -o <output_zip_file> [--table example_metadata.csv --join \"tables.example_metadata.filename = file.basename\"]")
         print("    ifcbproc features <roi_file> [roi_file...] [-o <output_path>]")
         print("")
     else:
