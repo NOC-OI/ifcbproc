@@ -140,7 +140,7 @@ def human_to_bytes(human_size):
 
     return byte_size
 
-def to_ecotaxa(roi_bin_list, out_file, verbose = False, no_image = False, max_size = None, table_map = {}, joins = [], feature_files = []):
+def to_ecotaxa(roi_bin_list, out_file, verbose = False, no_image = False, max_size = None, table_map = {}, joins = [], hides = [], feature_files = []):
 
     ecotaxa_mapping = {
                 "img_file_name": {
@@ -177,6 +177,7 @@ def to_ecotaxa(roi_bin_list, out_file, verbose = False, no_image = False, max_si
     feature_keys = set()
     sample_metadata_keys = set()
     sample_metadata_key_names = set()
+    sample_metadata_key_hides = set()
     join_keys = set()
 
     def search_table_for_match(rpath, table_map, match):
@@ -195,8 +196,9 @@ def to_ecotaxa(roi_bin_list, out_file, verbose = False, no_image = False, max_si
                             if row[head] == match:
                                 return row
             if hm:
-                print("ERROR: Key \"" + rpath + "\" exists, but did not have a match for all ROIs. Perhaps your table is incomplete?")
-                sys.exit()
+                print("WARNING: Key \"" + rpath + "\" exists in table, but did not have a match for value " + match + " all ROIs. Perhaps your table is incomplete?")
+                return {}
+                #sys.exit()
             else:
                 print("ERROR: No such key \"" + rpath + "\", perhaps you forgot to add a table?")
                 sys.exit()
@@ -221,6 +223,18 @@ def to_ecotaxa(roi_bin_list, out_file, verbose = False, no_image = False, max_si
                 sys.exit()
 
     #csv.field_size_limit(sys.maxsize) # Needed for some features!
+
+    for hide_rpath in hides:
+        pc = hide_rpath.split(".")
+        if len(pc) != 3:
+            print("ERROR: Hidden fields must be of the form \"<tables.example_table.example_field>\"")
+            sys.exit()
+        table_name = pc[1].strip()
+        field_name = pc[2].strip()
+        if pc[0].strip() != "tables":
+            print("ERROR: Hidden fields must be of the form \"<tables.example_table.example_field>\"")
+            sys.exit()
+        sample_metadata_key_hides.add((table_name, field_name))
 
     join_defs = []
 
@@ -277,6 +291,7 @@ def to_ecotaxa(roi_bin_list, out_file, verbose = False, no_image = False, max_si
         for join_def in join_defs:
             sd = get_sample_data_from_path(join_def[0], sample.header, sample_info)
             td = search_table_for_match(join_def[1], table_map, sd)
+            table_name = join_def[1].split(".")[1].strip()
             for roi in sample.rois:
                 roi_index = str(roi.index)
                 if roi_index not in feature_map.keys():
@@ -284,11 +299,12 @@ def to_ecotaxa(roi_bin_list, out_file, verbose = False, no_image = False, max_si
                 for key in td.keys():
                     sample_md_map[roi_index][key] = td[key]
                     if key not in sample_metadata_key_names:
-                        valtype = "f"
-                        if re.match(r'^-?\d+(?:\.\d+)$', td[key]) is None:
-                            valtype = "t"
-                        sample_metadata_keys.add((key, valtype))
-                        sample_metadata_key_names.add(key)
+                        if (table_name, key) not in sample_metadata_key_hides:
+                            valtype = "f"
+                            if re.match(r'^-?\d+(?:\.\d+)$', td[key]) is None:
+                                valtype = "t"
+                            sample_metadata_keys.add((key, valtype))
+                            sample_metadata_key_names.add(key)
                 #print(sample_md_map[roi.index])
                 #sys.exit()
 
@@ -562,6 +578,7 @@ if __name__ == "__main__":
     no_image = False
     max_size = None
     joins = []
+    hides = []
     tables = []
     verbose = False
     recurse = False
@@ -589,6 +606,9 @@ if __name__ == "__main__":
             elif arg == "--join":
                 mode_stack.append(mode)
                 mode = "join_capture"
+            elif arg == "--hide":
+                mode_stack.append(mode)
+                mode = "hide_capture"
             elif arg == "--maxsize":
                 mode_stack.append(mode)
                 mode = "maxsize_capture"
@@ -633,6 +653,9 @@ if __name__ == "__main__":
             elif mode == "join_capture":
                 joins.append(arg)
                 mode = mode_stack.pop()
+            elif mode == "hide_capture":
+                hides.append(arg)
+                mode = mode_stack.pop()
             elif mode == "table_capture":
                 tables.append(arg)
                 mode = mode_stack.pop()
@@ -662,7 +685,7 @@ if __name__ == "__main__":
             print("")
         print("Common usage:")
         print("    ifcbproc parquet <roi_file> [roi_file...] -o <output_path>")
-        print("    ifcbproc ecotaxa <roi_file> [roi_file...] -o <output_zip_file> [--table example_metadata.csv --join \"tables.example_metadata.filename = file.basename\"]")
+        print("    ifcbproc ecotaxa <roi_file> [roi_file...] -o <output_zip_file> [--table example_metadata.csv --join \"tables.example_metadata.filename = file.basename\" [--hide tables.example_metadata.filename]]")
         print("    ifcbproc features <roi_file> [roi_file...] [-o <output_path>]")
         print("")
     else:
@@ -697,7 +720,7 @@ if __name__ == "__main__":
             if command == "parquet":
                 to_parquet(roi_bin_list, output_file, verbose = verbose)
             elif command == "ecotaxa":
-                to_ecotaxa(roi_bin_list, output_file, verbose = verbose, no_image = no_image, max_size = max_size, table_map = table_map, joins = joins, feature_files = csv_heap)
+                to_ecotaxa(roi_bin_list, output_file, verbose = verbose, no_image = no_image, max_size = max_size, table_map = table_map, joins = joins, hides = hides, feature_files = csv_heap)
             elif command == "patch":
                 patch_files(roi_bin_list, environmental_data_files = tables, verbose = verbose)
             elif command == "features":
