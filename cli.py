@@ -294,7 +294,7 @@ def to_ecotaxa(roi_bin_list, out_file, verbose = False, no_image = False, max_si
             table_name = join_def[1].split(".")[1].strip()
             for roi in sample.rois:
                 roi_index = str(roi.index)
-                if roi_index not in feature_map.keys():
+                if roi_index not in sample_md_map.keys():
                     sample_md_map[roi_index] = {}
                 for key in td.keys():
                     sample_md_map[roi_index][key] = td[key]
