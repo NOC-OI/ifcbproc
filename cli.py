@@ -140,7 +140,7 @@ def human_to_bytes(human_size):
 
     return byte_size
 
-def to_ecotaxa(roi_bin_list, out_file, verbose = False, no_image = False, max_size = None, table_map = {}, joins = [], hides = [], feature_files = []):
+def to_ecotaxa(roi_bin_list, out_file, verbose = False, no_image = False, max_size = None, table_map = {}, joins = [], hides = [], feature_files = [], no_fft = False):
 
     ecotaxa_mapping = {
                 "img_file_name": {
@@ -153,6 +153,9 @@ def to_ecotaxa(roi_bin_list, out_file, verbose = False, no_image = False, max_si
                         "type": "t"
                     },
                 "acq_id": {
+                        "type": "t"
+                    },
+                "process_id": {
                         "type": "t"
                     },
                 "object_udt": {
@@ -179,6 +182,13 @@ def to_ecotaxa(roi_bin_list, out_file, verbose = False, no_image = False, max_si
     sample_metadata_key_names = set()
     sample_metadata_key_hides = set()
     join_keys = set()
+
+    adc_shift_to_object_table = ["roi_x", "roi_y", "roi_width", "roi_height"]
+    process_features = ["feature_extractor"]
+    metadata_shift_to_object_table = ["lat", "lon", "date", "time", "depth_min", "depth_max"]
+    skip_features = []
+    if no_fft:
+        skip_features = ["wedge48","wedge47","wedge46","wedge45","wedge44","wedge43","wedge42","wedge41","wedge40","wedge39","wedge38","wedge37","wedge36","wedge35","wedge34","wedge33","wedge32","wedge31","wedge30","wedge29","wedge28","wedge27","wedge26","wedge25","wedge24","wedge23","wedge22","wedge21","wedge20","wedge19","wedge18","wedge17","wedge16","wedge15","wedge14","wedge13","wedge12","wedge11","wedge10","wedge09","wedge08","wedge07","wedge06","wedge05","wedge04","wedge03","wedge02","wedge01","ring50","ring49","ring48","ring47","ring46","ring45","ring44","ring43","ring42","ring41","ring40","ring39","ring38","ring37","ring36","ring35","ring34","ring33","ring32","ring31","ring30","ring29","ring28","ring27","ring26","ring25","ring24","ring23","ring22","ring21","ring20","ring19","ring18","ring17","ring16","ring15","ring14","ring13","ring12","ring11","ring10","ring09","ring08","ring07","ring06","ring05","ring04","ring03","ring02","ring01","moment_invariant7","moment_invariant7","moment_invariant6","moment_invariant6","moment_invariant5","moment_invariant5","moment_invariant4","moment_invariant4","moment_invariant3","moment_invariant3","moment_invariant2","moment_invariant2","moment_invariant1","hog81","hog80","hog79","hog78","hog77","hog76","hog75","hog74","hog73","hog72","hog71","hog70","hog69","hog68","hog67","hog66","hog65","hog64","hog63","hog62","hog61","hog60","hog59","hog58","hog57","hog56","hog55","hog54","hog53","hog52","hog51","hog50","hog49","hog48","hog47","hog46","hog45","hog44","hog43","hog42","hog41","hog40","hog39","hog38","hog37","hog36","hog35","hog34","hog33","hog32","hog31","hog30","hog29","hog28","hog27","hog26","hog25","hog24","hog23","hog22","hog21","hog20","hog19","hog18","hog17","hog16","hog15","hog14","hog13","hog12","hog11","hog10","hog09","hog08","hog07","hog06","hog05","hog04","hog03","hog02","hog01"]
 
     def search_table_for_match(rpath, table_map, match):
         spath = rpath.split(".")
@@ -283,7 +293,8 @@ def to_ecotaxa(roi_bin_list, out_file, verbose = False, no_image = False, max_si
                                 valtype = "f"
                                 if re.match(r'^-?\d+(?:\.\d+)$', row[key]) is None:
                                     valtype = "t"
-                                feature_keys.add((key, valtype))
+                                if key not in skip_features:
+                                    feature_keys.add((key, valtype))
                             fst = False
                 except Exception:
                     print("Error reading feature file " + matched_feature_file)
@@ -315,14 +326,15 @@ def to_ecotaxa(roi_bin_list, out_file, verbose = False, no_image = False, max_si
                 valtype = "f"
                 if re.match(r'^-?\d+(?:\.\d+)$', sample.rois[0].trigger.raw[key]) is None:
                     valtype = "t"
-                adc_keys.add(("acq_" + key, valtype))
+                output_key_name = "acq_" + key
+                if key in adc_shift_to_object_table:
+                    output_key_name = "object_" + key
+                adc_keys.add((output_key_name, valtype))
 
 
     for adc_key in adc_keys:
         ecotaxa_mapping_order.append(adc_key[0])
         ecotaxa_type_def.append(adc_key[1])
-
-    process_features = ["feature_extractor"]
 
     feature_keys = sorted(feature_keys, key=lambda x: x[0], reverse=True)
 
@@ -335,6 +347,8 @@ def to_ecotaxa(roi_bin_list, out_file, verbose = False, no_image = False, max_si
 
     for sample_metadata_key in sample_metadata_keys:
         output_key_name = "sample_" + sample_metadata_key[0]
+        if sample_metadata_key[0] in metadata_shift_to_object_table:
+            output_key_name = "object_" + sample_metadata_key[0]
         ecotaxa_mapping_order.append(output_key_name)
         ecotaxa_type_def.append(sample_metadata_key[1])
 
@@ -383,6 +397,7 @@ def to_ecotaxa(roi_bin_list, out_file, verbose = False, no_image = False, max_si
                     "img_file_name": output_image_path,
                     "img_rank": 0,
                     "acq_id": bn + "_TN" + str(roi.trigger.index),
+                    "process_id": bn,
                     "object_id": observation_id,
                     "object_udt": small_udt(ifcb_id_to_udt(observation_id)),
                     "sample_id": bn,
@@ -404,6 +419,8 @@ def to_ecotaxa(roi_bin_list, out_file, verbose = False, no_image = False, max_si
 
             for sample_metadata_key in sample_metadata_keys:
                 output_key_name = "sample_" + sample_metadata_key[0]
+                if sample_metadata_key[0] in metadata_shift_to_object_table:
+                    output_key_name = "object_" + sample_metadata_key[0]
                 object_md[output_key_name] = ""
                 #print(sample[2][str(roi.index)])
                 if str(roi.index) in sample[3].keys():
@@ -415,7 +432,10 @@ def to_ecotaxa(roi_bin_list, out_file, verbose = False, no_image = False, max_si
 
 
             for key in roi.trigger.raw.keys():
-                object_md["acq_" + key] = roi.trigger.raw[key]
+                output_key_name = "acq_" + key
+                if key in adc_shift_to_object_table:
+                    output_key_name = "object_" + key
+                object_md[output_key_name] = roi.trigger.raw[key]
 
             ecotaxa_line = []
             for idx in ecotaxa_mapping_order:
@@ -530,7 +550,7 @@ def generate_features_one_file(sample, csv_file):
                 else:
                     print(f"\r[{bar_l}{bar_r}] getting ready...", end="")
 
-def generate_features(roi_bin_list, out_folder = None, verbose = False):
+def generate_features(roi_bin_list, out_folder = None, verbose = False, no_fft = False):
     roipaths = []
     for roi_bin_group in roi_bin_list:
         roipaths.append(os.path.dirname(os.path.abspath(roi_bin_group[0])))
@@ -576,6 +596,7 @@ if __name__ == "__main__":
     command = None
     output_file = None
     no_image = False
+    no_fft = False
     max_size = None
     joins = []
     hides = []
@@ -616,6 +637,8 @@ if __name__ == "__main__":
                 verbose = True
             elif arg == "--noimage":
                 no_image = True
+            elif arg == "--nofft":
+                no_fft = True
             elif arg == "--recurse":
                 recurse = True
             else:
@@ -720,10 +743,10 @@ if __name__ == "__main__":
             if command == "parquet":
                 to_parquet(roi_bin_list, output_file, verbose = verbose)
             elif command == "ecotaxa":
-                to_ecotaxa(roi_bin_list, output_file, verbose = verbose, no_image = no_image, max_size = max_size, table_map = table_map, joins = joins, hides = hides, feature_files = csv_heap)
+                to_ecotaxa(roi_bin_list, output_file, verbose = verbose, no_image = no_image, max_size = max_size, table_map = table_map, joins = joins, hides = hides, feature_files = csv_heap, no_fft = no_fft)
             elif command == "patch":
                 patch_files(roi_bin_list, environmental_data_files = tables, verbose = verbose)
             elif command == "features":
-                generate_features(roi_bin_list, output_file, verbose = verbose)
+                generate_features(roi_bin_list, output_file, verbose = verbose, no_fft = no_fft)
             else:
                 print(command + " unimplemented!")
