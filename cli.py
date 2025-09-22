@@ -140,7 +140,7 @@ def human_to_bytes(human_size):
 
     return byte_size
 
-def to_ecotaxa(roi_bin_list, out_file, verbose = False, no_image = False, max_size = None, table_map = {}, joins = [], hides = [], feature_files = [], no_fft = False):
+def to_ecotaxa(roi_bin_list, out_file, verbose = False, no_image = False, max_size = None, table_map = {}, joins = [], hides = [], feature_files = [], no_fft = False, force_ecotaxa_map_text = [], force_ecotaxa_map_float = []):
 
     ecotaxa_mapping = {
                 "img_file_name": {
@@ -293,6 +293,7 @@ def to_ecotaxa(roi_bin_list, out_file, verbose = False, no_image = False, max_si
                                 valtype = "f"
                                 if re.match(r'^-?\d+(?:\.\d+)$', row[key]) is None:
                                     valtype = "t"
+                                print(key + " => " + row[key])
                                 if key not in skip_features:
                                     feature_keys.add((key, valtype))
                             fst = False
@@ -352,10 +353,14 @@ def to_ecotaxa(roi_bin_list, out_file, verbose = False, no_image = False, max_si
         ecotaxa_mapping_order.append(output_key_name)
         ecotaxa_type_def.append(sample_metadata_key[1])
 
-    etfn = []
-    for etf in ecotaxa_type_def:
-        etfn.append("[" + etf + "]")
-    ecotaxa_type_def = etfn
+
+    for idx in range(len(ecotaxa_type_def)):
+        if ecotaxa_mapping_order[idx] in force_ecotaxa_map_float:
+            ecotaxa_type_def[idx] = "[f]"
+        elif ecotaxa_mapping_order[idx] in force_ecotaxa_map_text:
+            ecotaxa_type_def[idx] = "[t]"
+        else:
+            ecotaxa_type_def[idx] = "[" + ecotaxa_type_def[idx] + "]"
 
     zip_files = 1
     out_zip = None
@@ -601,6 +606,8 @@ if __name__ == "__main__":
     joins = []
     hides = []
     tables = []
+    force_string = []
+    force_float = []
     verbose = False
     recurse = False
     multiple_capture_switch = False
@@ -633,6 +640,12 @@ if __name__ == "__main__":
             elif arg == "--maxsize":
                 mode_stack.append(mode)
                 mode = "maxsize_capture"
+            elif arg == "--forcefloat":
+                mode_stack.append(mode)
+                mode = "force_float_capture"
+            elif arg == "--forcestring":
+                mode_stack.append(mode)
+                mode = "force_string_capture"
             elif arg == "--verbose":
                 verbose = True
             elif arg == "--noimage":
@@ -684,6 +697,10 @@ if __name__ == "__main__":
                 mode = mode_stack.pop()
             elif mode == "tables_capture":
                 tables.append(arg)
+            elif mode == "force_float_capture":
+                force_float.append(arg)
+            elif mode == "force_string_capture":
+                force_string.append(arg)
 
     if command is None:
         help_flag = True
@@ -743,7 +760,7 @@ if __name__ == "__main__":
             if command == "parquet":
                 to_parquet(roi_bin_list, output_file, verbose = verbose)
             elif command == "ecotaxa":
-                to_ecotaxa(roi_bin_list, output_file, verbose = verbose, no_image = no_image, max_size = max_size, table_map = table_map, joins = joins, hides = hides, feature_files = csv_heap, no_fft = no_fft)
+                to_ecotaxa(roi_bin_list, output_file, verbose = verbose, no_image = no_image, max_size = max_size, table_map = table_map, joins = joins, hides = hides, feature_files = csv_heap, no_fft = no_fft, force_ecotaxa_map_text = force_string, force_ecotaxa_map_float = force_float)
             elif command == "patch":
                 patch_files(roi_bin_list, environmental_data_files = tables, verbose = verbose)
             elif command == "features":
