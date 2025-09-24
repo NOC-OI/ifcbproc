@@ -293,7 +293,7 @@ def to_ecotaxa(roi_bin_list, out_file, verbose = False, no_image = False, max_si
                                 valtype = "f"
                                 if re.match(r'^-?\d+(?:\.\d+)$', row[key]) is None:
                                     valtype = "t"
-                                print(key + " => " + row[key])
+                                #print(key + " => " + row[key])
                                 if key not in skip_features:
                                     feature_keys.add((key, valtype))
                             fst = False
@@ -448,7 +448,7 @@ def to_ecotaxa(roi_bin_list, out_file, verbose = False, no_image = False, max_si
 
             for field_name, type_def in ecotaxa_mapping_td_zip:
                 if field_name in object_md.keys():
-                    if type_def == "[f]"
+                    if type_def == "[f]":
                         object_md[field_name] = float(object_md[field_name])
 
             ecotaxa_line = []
