@@ -378,6 +378,8 @@ def to_ecotaxa(roi_bin_list, out_file, verbose = False, no_image = False, max_si
     ecotaxa_md_writer.writerow(ecotaxa_mapping_order)
     ecotaxa_md_writer.writerow(ecotaxa_type_def)
 
+    ecotaxa_mapping_td_zip = zip(ecotaxa_mapping_order, ecotaxa_type_def)
+
     sample = None
 
     running_compressed_size = len(str(ecotaxa_mapping_order))
@@ -441,6 +443,13 @@ def to_ecotaxa(roi_bin_list, out_file, verbose = False, no_image = False, max_si
                 if key in adc_shift_to_object_table:
                     output_key_name = "object_" + key
                 object_md[output_key_name] = roi.trigger.raw[key]
+
+            # Ensure all fields are correct type
+
+            for field_name, type_def in ecotaxa_mapping_td_zip:
+                if field_name in object_md.keys():
+                    if type_def == "[f]"
+                        object_md[field_name] = float(object_md[field_name])
 
             ecotaxa_line = []
             for idx in ecotaxa_mapping_order:
